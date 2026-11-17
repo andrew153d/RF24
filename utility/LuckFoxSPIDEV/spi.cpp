@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "spi.h"
+#include "gpio.h"
 
 #define RF24_SPIDEV_BITS 8
 
@@ -40,8 +41,12 @@ void SPI::begin(int busNo, uint32_t spi_speed)
      * a bit messy but simple
      * */
     char device[] = "/dev/spidev0.0";
-    device[11] += (busNo / 10) % 10;
-    device[13] += busNo % 10;
+    csn_pin_ = busNo;
+    // Initialize CSN pin as output and set high (inactive)
+    GPIO::open(csn_pin_, GPIO::DIRECTION_OUT);
+    GPIO::write(csn_pin_, GPIO::OUTPUT_HIGH);
+    //device[11] += (busNo / 10) % 10;
+    //device[13] += busNo % 10;
 
     if (this->fd >= 0) // check whether spi is already open
     {
@@ -124,19 +129,25 @@ void SPI::init(uint32_t speed)
 
 uint8_t SPI::transfer(uint8_t tx)
 {
+    // Set CSN low (active)
+    GPIO::write(csn_pin_, GPIO::OUTPUT_LOW);
+
     struct spi_ioc_transfer tr;
     memset(&tr, 0, sizeof(tr));
     tr.tx_buf = (unsigned long)&tx;
     uint8_t rx;
     tr.rx_buf = (unsigned long)&rx;
     tr.len = sizeof(tx);
-    tr.speed_hz = _spi_speed; //RF24_SPI_SPEED;
+    tr.speed_hz = _spi_speed;
     tr.delay_usecs = 0;
     tr.bits_per_word = RF24_SPIDEV_BITS;
     tr.cs_change = 0;
 
-    int ret;
-    ret = ioctl(this->fd, SPI_IOC_MESSAGE(1), &tr);
+    int ret = ioctl(this->fd, SPI_IOC_MESSAGE(1), &tr);
+
+    // Set CSN high (inactive)
+    GPIO::write(csn_pin_, GPIO::OUTPUT_HIGH);
+
     if (ret < 1) {
         std::string msg = "[SPI::transfer] Can't send spi message; ";
         msg += strerror(errno);
@@ -148,18 +159,24 @@ uint8_t SPI::transfer(uint8_t tx)
 
 void SPI::transfernb(char* txBuf, char* rxBuf, uint32_t len)
 {
+    // Set CSN low (active)
+    GPIO::write(csn_pin_, GPIO::OUTPUT_LOW);
+
     struct spi_ioc_transfer tr;
     memset(&tr, 0, sizeof(tr));
     tr.tx_buf = (unsigned long)txBuf;
     tr.rx_buf = (unsigned long)rxBuf;
     tr.len = len;
-    tr.speed_hz = _spi_speed; //RF24_SPI_SPEED;
+    tr.speed_hz = _spi_speed;
     tr.delay_usecs = 0;
     tr.bits_per_word = RF24_SPIDEV_BITS;
     tr.cs_change = 0;
 
-    int ret;
-    ret = ioctl(this->fd, SPI_IOC_MESSAGE(1), &tr);
+    int ret = ioctl(this->fd, SPI_IOC_MESSAGE(1), &tr);
+
+    // Set CSN high (inactive)
+    GPIO::write(csn_pin_, GPIO::OUTPUT_HIGH);
+
     if (ret < 1) {
         std::string msg = "[SPI::transfernb] Can't send spi message; ";
         msg += strerror(errno);
@@ -177,4 +194,6 @@ SPI::~SPI()
     if (this->fd >= 0) {
         close(this->fd);
     }
+    // Unexport the CSN pin
+    GPIO::close(csn_pin_);
 }

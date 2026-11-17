@@ -47,6 +47,7 @@ private:
     int fd;
     uint32_t _spi_speed;
     bool spiIsInitialized = false;
+    uint32_t csn_pin_;
     void init(uint32_t spi_speed = RF24_SPI_SPEED);
 };
 
